@@ -1,0 +1,143 @@
+// Ultrasonic pins
+#define TRIG_PIN 14
+#define ECHO_PIN_1 35
+#define ECHO_PIN_2 34
+#define ECHO_PIN_3 39
+#define ECHO_PIN_4 36
+
+// MUX Gates
+#define TG1_NMOS 15
+#define TG1_PMOS 2
+#define TG2_NMOS 4
+#define TG2_PMOS 5
+#define TG3_NMOS 18
+#define TG3_PMOS 19
+#define TG4_NMOS 21
+#define TG4_PMOS 22
+
+// LEDs
+#define R1_RED 27
+#define R1_GREEN 26
+#define R2_RED 25
+#define R2_GREEN 13
+#define R3_RED 12
+#define R3_GREEN 33
+#define R4_RED 32
+#define R4_GREEN 23
+
+// MUX output
+#define MUX_OUTPUT 3 // GPIO1 (RX0)
+
+// Threshold for priority (in cm)
+#define PRIORITY_THRESHOLD 10
+
+// Function to measure distance
+long readUltrasonic(int echoPin) {
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+  return pulseIn(echoPin, HIGH, 30000); // Timeout: 30ms
+}
+
+// Set the correct TG (Transmission Gate) to select the input
+void setMUX(int tg_nmos, int tg_pmos) {
+  // Disable all first
+  digitalWrite(TG1_NMOS, LOW); digitalWrite(TG1_PMOS, HIGH);
+  digitalWrite(TG2_NMOS, LOW); digitalWrite(TG2_PMOS, HIGH);
+  digitalWrite(TG3_NMOS, LOW); digitalWrite(TG3_PMOS, HIGH);
+  digitalWrite(TG4_NMOS, LOW); digitalWrite(TG4_PMOS, HIGH);
+
+  // Enable the selected gate
+  digitalWrite(tg_nmos, HIGH);
+  digitalWrite(tg_pmos, LOW);
+}
+
+// Control LEDs: only one road green at a time
+void setLights(int activeRoad) {
+  digitalWrite(R1_GREEN, activeRoad == 1); digitalWrite(R1_RED, !(activeRoad == 1));
+  digitalWrite(R2_GREEN, activeRoad == 2); digitalWrite(R2_RED, !(activeRoad == 2));
+  digitalWrite(R3_GREEN, activeRoad == 3); digitalWrite(R3_RED, !(activeRoad == 3));
+  digitalWrite(R4_GREEN, activeRoad == 4); digitalWrite(R4_RED, !(activeRoad == 4));
+}
+
+void setup() {
+  // Ultrasonics
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN_1, INPUT);
+  pinMode(ECHO_PIN_2, INPUT);
+  pinMode(ECHO_PIN_3, INPUT);
+  pinMode(ECHO_PIN_4, INPUT);
+
+  // MUX control pins
+  pinMode(TG1_NMOS, OUTPUT); pinMode(TG1_PMOS, OUTPUT);
+  pinMode(TG2_NMOS, OUTPUT); pinMode(TG2_PMOS, OUTPUT);
+  pinMode(TG3_NMOS, OUTPUT); pinMode(TG3_PMOS, OUTPUT);
+  pinMode(TG4_NMOS, OUTPUT); pinMode(TG4_PMOS, OUTPUT);
+
+  // LEDs
+  pinMode(R1_RED, OUTPUT); pinMode(R1_GREEN, OUTPUT);
+  pinMode(R2_RED, OUTPUT); pinMode(R2_GREEN, OUTPUT);
+  pinMode(R3_RED, OUTPUT); pinMode(R3_GREEN, OUTPUT);
+  pinMode(R4_RED, OUTPUT); pinMode(R4_GREEN, OUTPUT);
+
+  // MUX output pin
+  pinMode(MUX_OUTPUT, INPUT);
+
+  // Begin with all red lights
+  setLights(0);
+}
+
+void loop() {
+  // Measure all ultrasonic sensors, with 50ms delay between each
+  long d1 = readUltrasonic(ECHO_PIN_1);
+  delay(50);
+  long d2 = readUltrasonic(ECHO_PIN_2);
+  delay(50);
+  long d3 = readUltrasonic(ECHO_PIN_3);
+  delay(50);
+  long d4 = readUltrasonic(ECHO_PIN_4);
+  d1 = d1 * 0.034 / 2;
+  d2 = d2 * 0.034 / 2;
+  d3 = d3 * 0.034 / 2;
+  d4 = d4 * 0.034 / 2;
+  // Check if any road has a priority (distance below threshold)
+  int priorityRoad = 0;
+  if (d1 > 0 && d1 < PRIORITY_THRESHOLD) priorityRoad = 1;
+  else if (d2 > 0 && d2 < PRIORITY_THRESHOLD) priorityRoad = 2;
+  else if (d3 > 0 && d3 < PRIORITY_THRESHOLD) priorityRoad = 3;
+  else if (d4 > 0 && d4 < PRIORITY_THRESHOLD) priorityRoad = 4;
+
+  int activeRoad;
+
+  if (priorityRoad != 0) {
+    // PRIORITY: Set active road to the one with priority
+    activeRoad = priorityRoad;
+  } else {
+    // NORMAL: Rotate through 1-4 every 5 seconds
+    activeRoad = (millis() / 5000) % 4 + 1;
+  }
+
+  // Set correct MUX gates
+  int tg_nmos, tg_pmos;
+  if (activeRoad == 1) { tg_nmos = TG1_NMOS; tg_pmos = TG1_PMOS; }
+  else if (activeRoad == 2) { tg_nmos = TG2_NMOS; tg_pmos = TG2_PMOS; }
+  else if (activeRoad == 3) { tg_nmos = TG3_NMOS; tg_pmos = TG3_PMOS; }
+  else { tg_nmos = TG4_NMOS; tg_pmos = TG4_PMOS; }
+
+  setMUX(tg_nmos, tg_pmos);
+
+  delay(100); // Settle time for MUX
+  bool muxResult = digitalRead(MUX_OUTPUT);
+
+  if (muxResult) {
+    // Traffic logic: set the green for selected road
+    setLights(activeRoad);
+    delay(5000); // Keep green for 5 seconds
+  } else {
+    // If no logic signal, default to Road 1
+    setLights(1);
+    delay(2000);
+  }
+}
